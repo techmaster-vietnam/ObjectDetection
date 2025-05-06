@@ -1,0 +1,16 @@
+.vscode
+build
+*.jpg
+!horses.jpg
+*.png
+
+*.pt
+*.torchscript
+yolo11n.*
+
+yolo12n_ncnn_model
+yolo12x_ncnn_model
+env
+ncnn-20250503-ubuntu-2204-shared/*
+*.bin
+*.param

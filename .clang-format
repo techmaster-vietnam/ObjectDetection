@@ -1,0 +1,75 @@
+# clang-format configuration file
+---
+Language: Cpp
+BasedOnStyle: Google
+
+# Basic formatting settings
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+
+# Pointer alignment
+DerivePointerAlignment: true
+PointerAlignment: Left
+
+# Brace wrapping settings
+BreakBeforeBraces: Allman
+BraceWrapping:
+  AfterClass: true
+  AfterFunction: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterEnum: true
+  BeforeElse: true
+  BeforeCatch: true
+  AfterExternBlock: false
+
+# Alignment settings
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignEscapedNewlines: Right
+
+# Comment handling
+CommentPragmas: '^/[*]{3,}\s*$|^//'
+AlignTrailingComments: true
+SpacesBeforeTrailingComments: 1
+
+# Include sorting and categorization
+IncludeBlocks: Regroup
+SortIncludes: true
+IncludeCategories:
+  - Regex: '^"(llvm|llvm-c|clang|clang-c)/'
+    Priority: 2
+  - Regex: '^(<|"(gtest|gmock|isl|json)/)'
+    Priority: 3
+  - Regex: ".*"
+    Priority: 1
+
+# Formatting settings for control structures and declarations
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: true
+SpacesInParentheses: false
+SpacesInAngles: false
+SpaceAfterTemplateKeyword: true
+
+# Control over line breaks
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+AllowShortLoopsOnASingleLine: true
+
+# Miscellaneous settings
+NamespaceIndentation: None
+AccessModifierOffset: -4
+KeepEmptyLinesAtTheStartOfBlocks: true
+
+# Parameter and argument packing
+BinPackParameters: false
+BinPackArguments: false
+
+# Other settings
+Cpp11BracedListStyle: true
+ForEachMacros: [foreach, Q_FOREACH, BOOST_FOREACH]
