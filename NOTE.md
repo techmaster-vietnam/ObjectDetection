@@ -416,5 +416,3 @@ Tối ưu hóa mô hình YOLO11n:
 # Nhúng vào mã C (tùy chọn)
 ./ncnn2mem yolo11n_int8.param yolo11n_int8.bin yolo11n_int8.cpp yolo11n_int8.h
 ```
-
-Nếu bạn cần thêm chi tiết về bất kỳ công cụ nào hoặc hỗ trợ tích hợp vào mã C++ (như trong `ncnn-yolo11-example-cpp`), hãy cho tôi biết!

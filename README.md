@@ -1,42 +1,146 @@
-# ncnn-yolo11-example-cpp
-The [repository](https://github.com/HexRx/ncnn-yolo11-example-cpp) contains C++ example of using the `ncnn` framework with YOLO11 models. If you use pre-built `ncnn` and `opencv-mobile`, the project will be built without dynamic library dependencies.
+# ObjectDetection (ncnn-yolo12)
+Repository này chứa ví dụ C++ về cách sử dụng framework `ncnn` với các mô hình YOLO12. Nếu bạn sử dụng `ncnn` và `opencv-mobile` đã được build sẵn, dự án sẽ được build mà không cần các thư viện động.
 
-## Dependencies
-- [CMake](https://cmake.org)
-- [ncnn](https://github.com/Tencent/ncnn)
-- OpenCV (or [opencv-mobile](https://github.com/nihui/opencv-mobile))
+## Tổng quan
+Dự án này minh họa cách sử dụng mô hình YOLO (You Only Look Once) để phát hiện đối tượng với framework NCNN trong C++. Nó cung cấp một ví dụ thực tế về việc chạy các mô hình YOLO để phát hiện đối tượng thời gian thực sử dụng NCNN, một framework suy luận mạng nơ-ron hiệu suất cao được tối ưu hóa cho các nền tảng di động.
 
-## Build
-1. Set up the [ncnn](https://github.com/Tencent/ncnn) library:
-    - Option 1: Build ncnn from source. Download the library from the official repository [ncnn](https://github.com/Tencent/ncnn) and follow the build instructions.
-    - Option 2: Use pre-built library. Download pre-built from the https://github.com/Tencent/ncnn?tab=readme-ov-file#download--build-status
-
-2. Set up the OpenCV library:
-    - Option 1: Build OpenCV from source.
-    - Option 2: Use pre-built mobile version of OpenCV - [opencv-mobile](https://github.com/nihui/opencv-mobile). Just download the appropriate version for your platform from https://github.com/nihui/opencv-mobile?tab=readme-ov-file#download
-
-3. Change CMakeLists.txt
-    
-    If you use `opencv-mobile` library, change the path string `OpenCV_DIR ~/opencv-mobile-4.10.0-ubuntu-2204/lib/cmake/opencv4` to your `opencv-mobile` path. Change include path `target_include_directories(app PRIVATE ~/ncnn-20240820-ubuntu-2204/include)` and lib path `link_directories(~/ncnn-20240820-ubuntu-2204/lib)` to your `ncnn` path.
-
-4. Run `cmake -S . -B build`
-5. Compile the project with command `cmake --build build`
-
-## Run application
+## Cấu trúc dự án
 ```
-./build/app horses.jpg yolo11n.ncnn.param yolo11n.ncnn.bin
+.
+├── main.cpp                   # Mã nguồn chính
+├── CMakeLists.txt            # Cấu hình build CMake
+└── run.sh                    # Script build và chạy
 ```
 
-## How to use your own YOLO Model
-There are two steps involved in using your own YOLO model with this project:
-1. Export YOLO model to ncnn format. Run the following command, replacing your_model.pt with the actual path to your YOLO model file:
-    ```
-    yolo export model=your_model.pt format=ncnn
-    ```
+## Yêu cầu
+1. **CMake** (phiên bản 3.20 trở lên)
+2. **Framework NCNN**
+   - Có thể build từ mã nguồn hoặc sử dụng bản build sẵn
+   - Phiên bản hiện tại: 20250503
+3. **OpenCV**
+   - Các thành phần cần thiết: core, imgproc, videoio, imgcodecs, highgui, objdetect
+   - Có thể sử dụng OpenCV đầy đủ hoặc opencv-mobile
 
-2. Open the `main.cpp` file and locate the variable named `class_names`. This variable defines the list of class names that the model will predict. Update this list to reflect the classes present in your own YOLO model.
-    ```
-    static const char* class_names[] = {"person", "bicycle", "car",
-                                        "motorcycle", "airplane", "bus",
-                                        ...
-    ```
+## Cài đặt và Build
+
+### Bước 1: Cài đặt các công cụ cần thiết
+1. Cài đặt CMake:
+   ```bash
+   sudo apt-get install cmake
+   ```
+
+2. Cài đặt OpenCV:
+   ```bash
+   sudo apt-get install libopencv-dev
+   ```
+   Hoặc sử dụng opencv-mobile cho phiên bản nhẹ hơn.
+
+3. Cài đặt NCNN:
+   ```bash
+   wget https://github.com/Tencent/ncnn/releases/download/20250503/ncnn-20250503-ubuntu-2404-shared.zip
+   unzip ncnn-20250503-ubuntu-2404-shared.zip
+   ```
+
+### Bước 2: Chuẩn bị môi trường Python và chuyển đổi mô hình
+1. Tạo và kích hoạt môi trường Python:
+   ```bash
+   python -m venv env
+   source env/bin/activate
+   pip install ultralytics
+   ```
+
+2. Chuyển đổi mô hình YOLO sang định dạng NCNN:
+   ```bash
+   yolo export model=yolo12n.pt format=ncnn imgsz=320 half=True
+   ```
+
+3. Tối ưu hóa mô hình NCNN:
+   ```bash
+   ./ncnn-20250503-ubuntu-2204-shared/bin/ncnnoptimize yolo12n_ncnn_model/model.ncnn.param yolo12n_ncnn_model/model.ncnn.bin yolo12n_opt.param yolo12n_opt.bin 65536
+   ```
+
+### Bước 3: Build dự án
+1. Clone repository:
+   ```bash
+   git clone https://github.com/techmaster-vietnam/ObjectDetection.git
+   cd ObjectDetection
+   ```
+
+2. Cấu hình build:
+   - Chỉnh sửa `CMakeLists.txt` để đặt đường dẫn chính xác cho NCNN và OpenCV
+   - Cập nhật các đường dẫn sau nếu cần:
+     ```cmake
+     link_directories(${CMAKE_CURRENT_SOURCE_DIR}/ncnn-20250503-ubuntu-2204-shared/lib)
+     target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ncnn-20250503-ubuntu-2204-shared/include)
+     ```
+
+3. Build dự án:
+   ```bash
+   ./run.sh
+   ```
+   Hoặc thủ công:
+   ```bash
+   mkdir build
+   cd build
+   cmake ..
+   make
+   ```
+
+## Chạy ứng dụng
+
+### Cách sử dụng cơ bản
+```bash
+./build/yolo_ncnn <file_param_mô_hình> <file_bin_mô_hình>
+```
+
+Ví dụ:
+```bash
+./build/yolo_ncnn yolo12n_opt.param yolo12n_opt.bin
+```
+
+### Sử dụng mô hình YOLO của riêng bạn
+1. Xuất mô hình YOLO của bạn sang định dạng NCNN:
+   ```bash
+   yolo export model=your_model.pt format=ncnn
+   ```
+
+2. Cập nhật tên các lớp trong `main.cpp`:
+   ```cpp
+   static const char* class_names[] = {
+       "person", "bicycle", "car",
+       // Thêm các lớp của mô hình của bạn vào đây
+   };
+   ```
+
+## Cấu trúc mã nguồn
+
+### Các thành phần chính
+1. **Tải và khởi tạo mô hình**
+   - Tải các file mô hình NCNN (.param và .bin)
+   - Khởi tạo mạng nơ-ron
+
+2. **Xử lý ảnh**
+   - Xử lý tải và tiền xử lý ảnh
+   - Thực hiện suy luận sử dụng mô hình YOLO
+   - Hậu xử lý kết quả phát hiện
+
+3. **Phát hiện đối tượng**
+   - Triển khai thuật toán phát hiện YOLO
+   - Xử lý tính toán bounding box
+   - Quản lý điểm tin cậy và dự đoán lớp
+
+### Các hàm chính
+- `load_model()`: Tải mô hình NCNN
+- `detect()`: Thực hiện phát hiện đối tượng
+- `draw_detections()`: Hiển thị kết quả phát hiện
+
+## Xử lý sự cố
+1. **Vấn đề khi build**
+   - Đảm bảo tất cả các dependency đã được cài đặt đúng
+   - Kiểm tra các đường dẫn trong CMakeLists.txt
+   - Kiểm tra tính tương thích phiên bản OpenCV và NCNN
+
+2. **Vấn đề khi chạy**
+   - Kiểm tra định dạng file mô hình
+   - Kiểm tra định dạng và kích thước ảnh đầu vào
+   - Đảm bảo đủ tài nguyên hệ thống
