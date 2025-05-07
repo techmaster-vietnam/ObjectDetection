@@ -7,5 +7,4 @@ cd build
 cmake ..
 make
 
-# ./app yolo11n.ncnn.param yolo11n.ncnn.bin
-./app model.ncnn.param model.ncnn.bin
+./yolo_ncnn yolo12n_opt.param yolo12n_opt.bin
