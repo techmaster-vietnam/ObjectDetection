@@ -187,7 +187,7 @@ static int detect_yolov8(const char*          param_path,
     yolov8.load_param(param_path);
     yolov8.load_model(modelpath);
 
-    const int   target_size    = 640;
+    const int   target_size    = 320;
     const float prob_threshold = 0.25f;
     const float nms_threshold  = 0.45f;
 
@@ -353,31 +353,16 @@ int main(int argc, char** argv)
     const char* parampath = argv[1];
     const char* modelpath = argv[2];
 
-    // Try different camera indices
-    cv::VideoCapture cap;
-    int              camera_index = 1; // USB camera usually starts at index 1
-    cap.open(camera_index);
+    const std::string cam = "/dev/v4l/by-id/usb-SN0002_1080P_Web_Camera_SN0002-video-index0"; // your usb cam device
 
+    // Open video capture
+    cv::VideoCapture cap;
+    cap.open(cam, cv::CAP_V4L2); // Specify V4L2 backend for better performance
     if (!cap.isOpened())
     {
-        fprintf(stderr, "Failed to open camera at index %d\n", camera_index);
-        fprintf(stderr, "Trying camera index 0...\n");
-        camera_index = 0;
-        cap.open(camera_index);
-
-        if (!cap.isOpened())
-        {
-            fprintf(stderr, "Failed to open camera at index 0\n");
-            fprintf(stderr, "Please check if your camera is properly connected\n");
-            fprintf(stderr, "You can check available cameras with: v4l2-ctl --list-devices\n");
-            return -1;
-        }
+        std::cerr << "Error: Could not open the camera!\n";
+        return -1;
     }
-
-    fprintf(stderr, "Successfully opened camera at index %d\n", camera_index);
-
-    // ĐÚng hơn nhưng chậm hơn
-    // yolo v12
 
     // Print actual camera properties
     fprintf(stderr, "Camera properties:\n");
