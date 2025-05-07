@@ -11,6 +11,7 @@ yolo11n.*
 yolo12n_ncnn_model
 yolo12x_ncnn_model
 env
-ncnn-20250503-ubuntu-2204-shared/*
+ncnn-20250503-ubuntu-2404-shared/*
 *.bin
 *.param
+*.zip
