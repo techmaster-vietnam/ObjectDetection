@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.23)
-project(app)
+cmake_minimum_required(VERSION 3.20)
+project(yolo_ncnn)
 
 # set(OpenCV_DIR ~/opencv-mobile-4.10.0-ubuntu-2204/lib/cmake/opencv4)
 # find_package(OpenCV REQUIRED)
@@ -16,23 +16,22 @@ if(OpenCV_FOUND)
     endif()
 endif()
 
-link_directories(./ncnn-20250503-ubuntu-2204-shared/lib)
+link_directories(${CMAKE_CURRENT_SOURCE_DIR}/ncnn-20250503-ubuntu-2404-shared/lib)
 
-add_executable(app main.cpp)
-target_include_directories(app PRIVATE ./ncnn-20250503-ubuntu-2204-shared/include)
+add_executable(${PROJECT_NAME} main.cpp)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ncnn-20250503-ubuntu-2404-shared/include)
 
-target_include_directories(app PRIVATE ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(app PRIVATE ncnn glslang MachineIndependent GenericCodeGen OSDependent SPIRV ${OpenCV_LIBS})
-# OGLCompiler 
+target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME} PRIVATE ncnn glslang MachineIndependent GenericCodeGen OSDependent SPIRV ${OpenCV_LIBS})
+
+# OGLCompiler
 
 # Copy model files and test image to build directory
 set(MODEL_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/yolo11n.ncnn.param
-    ${CMAKE_CURRENT_SOURCE_DIR}/yolo11n.ncnn.bin
-    ${CMAKE_CURRENT_SOURCE_DIR}/horses.jpg
-    ${CMAKE_CURRENT_SOURCE_DIR}/model.ncnn.param
-    ${CMAKE_CURRENT_SOURCE_DIR}/model.ncnn.bin
+    ${CMAKE_CURRENT_SOURCE_DIR}/yolo12n_opt.param
+    ${CMAKE_CURRENT_SOURCE_DIR}/yolo12n_opt.bin
 )
+
 foreach(FILE ${MODEL_FILES})
     if(EXISTS ${FILE})
         file(COPY ${FILE} DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
