@@ -193,22 +193,11 @@ static void parse_yolov8_detections(float*               inputs,
 }
 
 // Hàm chính thực hiện phát hiện đối tượng sử dụng mô hình YOLOv8
-static int detect_yolov8(const char*          param_path,
-                         const char*          modelpath,
+static int detect_yolov8(ncnn::Net&           yolov8,
                          const cv::Mat&       bgr,
                          std::vector<Object>& objects,
                          const std::vector<std::string>& class_names)
 {
-    ncnn::Net yolov8;
-
-    yolov8.opt.use_vulkan_compute = true; // if you want detect in hardware, then enable it
-    yolov8.opt.num_threads = 4; // Điều chỉnh số luồng
-    yolov8.opt.use_fp16_packed = true; // Sử dụng FP16 để tăng tốc
-    yolov8.opt.use_fp16_storage = true;
-
-    yolov8.load_param(param_path);
-    yolov8.load_model(modelpath);
-
     const int   target_size    = 320;
     const float prob_threshold = 0.25f;
     const float nms_threshold  = 0.45f;
@@ -410,6 +399,15 @@ int main(int argc, char** argv)
     fprintf(stderr, "Height: %d\n", (int) cap.get(cv::CAP_PROP_FRAME_HEIGHT));
     fprintf(stderr, "FPS: %d\n", (int) cap.get(cv::CAP_PROP_FPS));
 
+    // Khởi tạo mạng nơ-ron một lần duy nhất
+    ncnn::Net yolov8;
+    yolov8.opt.use_vulkan_compute = true;
+    yolov8.opt.num_threads = 4;
+    yolov8.opt.use_fp16_packed = true;
+    yolov8.opt.use_fp16_storage = true;
+    yolov8.load_param(parampath.c_str());
+    yolov8.load_model(modelpath.c_str());
+
     while (true)
     {
         cv::Mat frame;
@@ -421,7 +419,7 @@ int main(int argc, char** argv)
         }
 
         std::vector<Object> objects;
-        detect_yolov8(parampath.c_str(), modelpath.c_str(), frame, objects, class_names);
+        detect_yolov8(yolov8, frame, objects, class_names);
 
         draw_objects(frame, objects, class_names);
 
