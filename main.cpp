@@ -1,6 +1,5 @@
 #include "ncnn/layer.h"
 #include "ncnn/net.h"
-#include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <float.h>
@@ -9,27 +8,35 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/opencv.hpp>
 #include <stdio.h>
-#include <vector>
 #include <string>
+#include <vector>
+#include <yaml-cpp/yaml.h>
 
 #define MAX_STRIDE 32
 
 // Hàm đọc danh sách tên các lớp từ file metadata YAML
-std::vector<std::string> get_class_names(const std::string& metadata_path) {
+std::vector<std::string> get_class_names(const std::string& metadata_path)
+{
     std::vector<std::string> class_names;
-    try {
+    try
+    {
         YAML::Node config = YAML::LoadFile(metadata_path);
-        if (config["names"]) {
-            for (const auto& pair : config["names"]) {
-                int index = pair.first.as<int>();
-                std::string name = pair.second.as<std::string>();
-                if (index >= class_names.size()) {
+        if (config["names"])
+        {
+            for (const auto& pair : config["names"])
+            {
+                int         index = pair.first.as<int>();
+                std::string name  = pair.second.as<std::string>();
+                if (index >= class_names.size())
+                {
                     class_names.resize(index + 1);
                 }
                 class_names[index] = name;
             }
         }
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         fprintf(stderr, "Error reading metadata file: %s\n", e.what());
     }
     return class_names;
@@ -192,10 +199,169 @@ static void parse_yolov8_detections(float*               inputs,
     objects = detections;
 }
 
+// Hàm tính khoảng cách từ tâm của box đến tâm ảnh (chuẩn hóa về [0,1])
+static float calculate_normalized_distance(const cv::Rect_<float>& box, int img_w, int img_h)
+{
+    float box_center_x = box.x + box.width / 2;
+    float box_center_y = box.y + box.height / 2;
+
+    float img_center_x = img_w / 2.0f;
+    float img_center_y = img_h / 2.0f;
+
+    float dx = (box_center_x - img_center_x) / img_w;
+    float dy = (box_center_y - img_center_y) / img_h;
+
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+// Hàm kiểm tra xem box có nằm trong vùng trung tâm không
+static bool is_in_center_region(const cv::Rect_<float>& box, int img_w, int img_h, float center_ratio = 0.5f)
+{
+    float box_center_x = box.x + box.width / 2;
+    float box_center_y = box.y + box.height / 2;
+
+    float center_x_min = img_w * (1 - center_ratio) / 2;
+    float center_x_max = img_w * (1 + center_ratio) / 2;
+    float center_y_min = img_h * (1 - center_ratio) / 2;
+    float center_y_max = img_h * (1 + center_ratio) / 2;
+
+    return (box_center_x >= center_x_min && box_center_x <= center_x_max && box_center_y >= center_y_min &&
+            box_center_y <= center_y_max);
+}
+
+// Hàm phát hiện một vật thể duy nhất ở trung tâm ảnh
+static int detect_yolov8_single(ncnn::Net&                      yolov8,
+                                const cv::Mat&                  bgr,
+                                Object&                         object,
+                                const std::vector<std::string>& class_names,
+                                float                           prob_threshold = 0.25f,
+                                float                           center_ratio   = 0.5f,
+                                float                           alpha          = 0.7f,
+                                float                           beta           = 0.3f)
+{
+    const int   target_size   = 320;
+    const float nms_threshold = 0.45f;
+
+    int img_w = bgr.cols;
+    int img_h = bgr.rows;
+
+    // letterbox pad to multiple of MAX_STRIDE
+    int   w     = img_w;
+    int   h     = img_h;
+    float scale = 1.f;
+    if (w > h)
+    {
+        scale = (float) target_size / w;
+        w     = target_size;
+        h     = h * scale;
+    }
+    else
+    {
+        scale = (float) target_size / h;
+        h     = target_size;
+        w     = w * scale;
+    }
+
+    ncnn::Mat in = ncnn::Mat::from_pixels_resize(bgr.data, ncnn::Mat::PIXEL_BGR2RGB, img_w, img_h, w, h);
+
+    int       wpad = (target_size + MAX_STRIDE - 1) / MAX_STRIDE * MAX_STRIDE - w;
+    int       hpad = (target_size + MAX_STRIDE - 1) / MAX_STRIDE * MAX_STRIDE - h;
+    ncnn::Mat in_pad;
+    ncnn::copy_make_border(
+        in, in_pad, hpad / 2, hpad - hpad / 2, wpad / 2, wpad - wpad / 2, ncnn::BORDER_CONSTANT, 114.f);
+
+    const float norm_vals[3] = {1 / 255.f, 1 / 255.f, 1 / 255.f};
+    in_pad.substract_mean_normalize(0, norm_vals);
+
+    ncnn::Extractor ex = yolov8.create_extractor();
+    ex.input("in0", in_pad);
+
+    // Biến lưu thông tin proposal tốt nhất
+    float  best_score = -1.0f;
+    Object best_object;
+
+    // stride 32
+    {
+        ncnn::Mat out;
+        ex.extract("out0", out);
+
+        const int num_labels = class_names.size();
+        cv::Mat   output     = cv::Mat((int) out.h, (int) out.w, CV_32F, out.data).t();
+
+        for (int i = 0; i < out.w; i++)
+        {
+            const float* row_ptr    = output.row(i).ptr<float>();
+            const float* bboxes_ptr = row_ptr;
+            const float* scores_ptr = row_ptr + 4;
+            const float* max_s_ptr  = std::max_element(scores_ptr, scores_ptr + num_labels);
+            float        score      = *max_s_ptr;
+
+            if (score > prob_threshold)
+            {
+                float x = *bboxes_ptr++;
+                float y = *bboxes_ptr++;
+                float w = *bboxes_ptr++;
+                float h = *bboxes_ptr;
+
+                float x0 = clampf((x - 0.5f * w), 0.f, (float) in_pad.w);
+                float y0 = clampf((y - 0.5f * h), 0.f, (float) in_pad.h);
+                float x1 = clampf((x + 0.5f * w), 0.f, (float) in_pad.w);
+                float y1 = clampf((y + 0.5f * h), 0.f, (float) in_pad.h);
+
+                cv::Rect_<float> bbox;
+                bbox.x      = x0;
+                bbox.y      = y0;
+                bbox.width  = x1 - x0;
+                bbox.height = y1 - y0;
+
+                // Kiểm tra xem box có nằm trong vùng trung tâm không
+                if (is_in_center_region(bbox, in_pad.w, in_pad.h, center_ratio))
+                {
+                    float distance       = calculate_normalized_distance(bbox, in_pad.w, in_pad.h);
+                    float combined_score = alpha * score + beta * (1.0f - distance);
+
+                    if (combined_score > best_score)
+                    {
+                        best_score        = combined_score;
+                        best_object.label = max_s_ptr - scores_ptr;
+                        best_object.prob  = score;
+                        best_object.rect  = bbox;
+                    }
+                }
+            }
+        }
+    }
+
+    if (best_score > -1.0f)
+    {
+        // Điều chỉnh tọa độ về ảnh gốc
+        float x0 = (best_object.rect.x - (wpad / 2)) / scale;
+        float y0 = (best_object.rect.y - (hpad / 2)) / scale;
+        float x1 = (best_object.rect.x + best_object.rect.width - (wpad / 2)) / scale;
+        float y1 = (best_object.rect.y + best_object.rect.height - (hpad / 2)) / scale;
+
+        // Clip tọa độ
+        x0 = std::max(std::min(x0, (float) (img_w - 1)), 0.f);
+        y0 = std::max(std::min(y0, (float) (img_h - 1)), 0.f);
+        x1 = std::max(std::min(x1, (float) (img_w - 1)), 0.f);
+        y1 = std::max(std::min(y1, (float) (img_h - 1)), 0.f);
+
+        best_object.rect.x      = x0;
+        best_object.rect.y      = y0;
+        best_object.rect.width  = x1 - x0;
+        best_object.rect.height = y1 - y0;
+
+        object = best_object;
+        return 1;
+    }
+
+    return 0;
+}
+
 // Hàm chính thực hiện phát hiện đối tượng sử dụng mô hình YOLOv8
-static int detect_yolov8(ncnn::Net&           yolov8,
-                         const cv::Mat&       bgr,
-                         std::vector<Object>& objects,
+static int detect_yolov8(ncnn::Net&                      yolov8,
+                         const cv::Mat&                  bgr,
+                         std::vector<Object>&            objects,
                          const std::vector<std::string>& class_names)
 {
     const int   target_size    = 320;
@@ -245,7 +411,7 @@ static int detect_yolov8(ncnn::Net&           yolov8,
         ex.extract("out0", out);
 
         std::vector<Object> objects32;
-        const int num_labels = class_names.size();
+        const int           num_labels = class_names.size();
         parse_yolov8_detections(
             (float*) out.data, prob_threshold, out.h, out.w, num_labels, in_pad.w, in_pad.h, objects32);
         proposals.insert(proposals.end(), objects32.begin(), objects32.end());
@@ -287,7 +453,9 @@ static int detect_yolov8(ncnn::Net&           yolov8,
 }
 
 // Hàm vẽ các đối tượng được phát hiện lên ảnh
-static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, const std::vector<std::string>& class_names)
+static void draw_objects(const cv::Mat&                  bgr,
+                         const std::vector<Object>&      objects,
+                         const std::vector<std::string>& class_names)
 {
     static const unsigned char colors[19][3] = {{54, 67, 244},
                                                 {99, 30, 233},
@@ -322,14 +490,14 @@ static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects,
 
         cv::Scalar cc(color[0], color[1], color[2]);
 
-        fprintf(stderr,
-                "%d = %.5f at %.2f %.2f %.2f x %.2f\n",
-                obj.label,
-                obj.prob,
-                obj.rect.x,
-                obj.rect.y,
-                obj.rect.width,
-                obj.rect.height);
+        /*  fprintf(stderr,
+                  "%d = %.5f at %.2f %.2f %.2f x %.2f\n",
+                  obj.label,
+                  obj.prob,
+                  obj.rect.x,
+                  obj.rect.y,
+                  obj.rect.width,
+                  obj.rect.height);*/
 
         cv::rectangle(image, obj.rect, cc, 2);
 
@@ -354,36 +522,112 @@ static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects,
     cv::imshow("YOLOv12 Detection", image);
 }
 
+// Hàm vẽ một đối tượng duy nhất với tối ưu hiệu suất
+static void draw_an_object(const cv::Mat& bgr, const Object& obj, const std::string& class_name)
+{
+    // Clone ảnh gốc để tránh thay đổi ảnh gốc
+    cv::Mat image = bgr.clone();
+
+    // Chỉ sử dụng một màu cố định để tránh tính toán không cần thiết
+    const cv::Scalar color(255, 0, 0); // Màu đỏ
+
+    // Vẽ bounding box
+    cv::rectangle(image, obj.rect, color, 2);
+
+    // Tạo text hiển thị
+    char text[64];
+    snprintf(text, sizeof(text), "%s %.1f%%", class_name.c_str(), obj.prob * 100);
+
+    // Tính toán vị trí text
+    int baseLine = 0;
+    cv::Size label_size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+
+    // Điều chỉnh vị trí text để đảm bảo hiển thị trong frame
+    int x = obj.rect.x;
+    int y = obj.rect.y - label_size.height - baseLine;
+    if (y < 0) y = 0;
+    if (x + label_size.width > image.cols) x = image.cols - label_size.width;
+
+    // Vẽ background cho text
+    cv::rectangle(image, 
+                 cv::Rect(cv::Point(x, y), 
+                         cv::Size(label_size.width, label_size.height + baseLine)), 
+                 color, -1);
+
+    // Vẽ text
+    cv::putText(image, text, 
+                cv::Point(x, y + label_size.height), 
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, 
+                cv::Scalar(255, 255, 255));
+
+    // Hiển thị ảnh đã được vẽ
+    cv::imshow("YOLOv12 Detection", image);
+}
+
+// Hàm liệt kê tất cả các camera có sẵn
+static void list_cameras() {
+    fprintf(stderr, "Đang quét các camera có sẵn...\n");
+    
+    // Thử mở từng camera với index từ 0 đến 10
+    for (int i = 0; i < 2; i++) {
+        cv::VideoCapture cap(i, cv::CAP_AVFOUNDATION);
+        if (cap.isOpened()) {
+            // Lấy thông tin camera
+            int width = (int)cap.get(cv::CAP_PROP_FRAME_WIDTH);
+            int height = (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT);
+            int fps = (int)cap.get(cv::CAP_PROP_FPS);
+            
+            fprintf(stderr, "Camera %d:\n", i);
+            fprintf(stderr, "  - Độ phân giải: %dx%d\n", width, height);
+            fprintf(stderr, "  - FPS: %d\n", fps);
+            
+            // Đóng camera
+            cap.release();
+        }
+    }
+    fprintf(stderr, "Hoàn thành quét camera.\n");
+}
+
 // Hàm main - điểm khởi đầu của chương trình
 int main(int argc, char** argv)
 {
+
+    // Liệt kê các camera có sẵn
+    //list_cameras();
+    //return 0;
+
     std::string model_dir;
-    if (argc == 2) {
+    if (argc == 2)
+    {
         model_dir = argv[1];
-    } else if (argc == 1) {
+    }
+    else if (argc == 1)
+    {
         model_dir = "."; // Thư mục hiện tại
-    } else {
+    }
+    else
+    {
         fprintf(stderr, "Usage: %s [model_directory]\n", argv[0]);
         return -1;
     }
 
+
     // Tạo đường dẫn đầy đủ cho param và model file
-    std::string parampath = model_dir + "/model.ncnn.param";
-    std::string modelpath = model_dir + "/model.ncnn.bin";
+    std::string parampath     = model_dir + "/model.ncnn.param";
+    std::string modelpath     = model_dir + "/model.ncnn.bin";
     std::string metadata_path = model_dir + "/metadata.yaml";
 
     // Đọc danh sách class names từ file metadata
     std::vector<std::string> class_names = get_class_names(metadata_path);
-    if (class_names.empty()) {
+    if (class_names.empty())
+    {
         fprintf(stderr, "Error: No class names found in metadata file\n");
         return -1;
     }
 
-    const int cam = 0; // your usb cam device
-
     // Open video capture
-    cv::VideoCapture cap(0, cv::CAP_AVFOUNDATION); 
-    
+    cv::VideoCapture cap(0, cv::CAP_AVFOUNDATION);
+
     if (!cap.isOpened())
     {
         std::cerr << "Error: Could not open the camera!\n";
@@ -402,9 +646,9 @@ int main(int argc, char** argv)
     // Khởi tạo mạng nơ-ron một lần duy nhất
     ncnn::Net yolov8;
     yolov8.opt.use_vulkan_compute = true;
-    yolov8.opt.num_threads = 4;
-    yolov8.opt.use_fp16_packed = true;
-    yolov8.opt.use_fp16_storage = true;
+    yolov8.opt.num_threads        = 4;
+    yolov8.opt.use_fp16_packed    = true;
+    yolov8.opt.use_fp16_storage   = true;
     yolov8.load_param(parampath.c_str());
     yolov8.load_model(modelpath.c_str());
 
@@ -418,10 +662,17 @@ int main(int argc, char** argv)
             break;
         }
 
-        std::vector<Object> objects;
+        /*std::vector<Object> objects;
         detect_yolov8(yolov8, frame, objects, class_names);
 
-        draw_objects(frame, objects, class_names);
+        draw_objects(frame, objects, class_names);*/
+        Object object;
+        if (detect_yolov8_single(yolov8, frame, object, class_names))
+        {
+            // Xử lý vật thể được phát hiện
+            //draw_objects(frame, {object}, class_names);
+            draw_an_object(frame, object, class_names[object.label]);
+        }
 
         // Press 'q' to quit
         char key = cv::waitKey(1);
