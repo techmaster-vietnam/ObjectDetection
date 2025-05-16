@@ -1,5 +1,6 @@
 #include "ncnn/layer.h"
 #include "ncnn/net.h"
+#include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <float.h>
@@ -9,23 +10,32 @@
 #include <opencv2/opencv.hpp>
 #include <stdio.h>
 #include <vector>
+#include <string>
 
 #define MAX_STRIDE 32
 
-static const char* class_names[] = {
-    "person",         "bicycle",    "car",           "motorcycle",    "airplane",     "bus",           "train",
-    "truck",          "boat",       "traffic light", "fire hydrant",  "stop sign",    "parking meter", "bench",
-    "bird",           "cat",        "dog",           "horse",         "sheep",        "cow",           "elephant",
-    "bear",           "zebra",      "giraffe",       "backpack",      "umbrella",     "handbag",       "tie",
-    "suitcase",       "frisbee",    "skis",          "snowboard",     "sports ball",  "kite",          "baseball bat",
-    "baseball glove", "skateboard", "surfboard",     "tennis racket", "bottle",       "wine glass",    "cup",
-    "fork",           "knife",      "spoon",         "bowl",          "banana",       "apple",         "sandwich",
-    "orange",         "broccoli",   "carrot",        "hot dog",       "pizza",        "donut",         "cake",
-    "chair",          "couch",      "potted plant",  "bed",           "dining table", "toilet",        "tv",
-    "laptop",         "mouse",      "remote",        "keyboard",      "cell phone",   "microwave",     "oven",
-    "toaster",        "sink",       "refrigerator",  "book",          "clock",        "vase",          "scissors",
-    "teddy bear",     "hair drier", "toothbrush"};
+// Hàm đọc danh sách tên các lớp từ file metadata YAML
+std::vector<std::string> get_class_names(const std::string& metadata_path) {
+    std::vector<std::string> class_names;
+    try {
+        YAML::Node config = YAML::LoadFile(metadata_path);
+        if (config["names"]) {
+            for (const auto& pair : config["names"]) {
+                int index = pair.first.as<int>();
+                std::string name = pair.second.as<std::string>();
+                if (index >= class_names.size()) {
+                    class_names.resize(index + 1);
+                }
+                class_names[index] = name;
+            }
+        }
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Error reading metadata file: %s\n", e.what());
+    }
+    return class_names;
+}
 
+// Cấu trúc lưu thông tin về đối tượng được phát hiện
 struct Object
 {
     cv::Rect_<float> rect;
@@ -33,12 +43,14 @@ struct Object
     float            prob;
 };
 
+// Hàm tính diện tích giao nhau giữa hai đối tượng
 static inline float intersection_area(const Object& a, const Object& b)
 {
     cv::Rect_<float> inter = a.rect & b.rect;
     return inter.area();
 }
 
+// Hàm sắp xếp các đối tượng theo xác suất giảm dần (quicksort)
 static void qsort_descent_inplace(std::vector<Object>& objects, int left, int right)
 {
     int   i = left;
@@ -74,6 +86,7 @@ static void qsort_descent_inplace(std::vector<Object>& objects, int left, int ri
     }
 }
 
+// Hàm wrapper cho quicksort
 static void qsort_descent_inplace(std::vector<Object>& objects)
 {
     if (objects.empty()) return;
@@ -81,6 +94,7 @@ static void qsort_descent_inplace(std::vector<Object>& objects)
     qsort_descent_inplace(objects, 0, objects.size() - 1);
 }
 
+// Hàm thực hiện Non-Maximum Suppression (NMS) để loại bỏ các bounding box trùng lặp
 static void nms_sorted_bboxes(const std::vector<Object>& faceobjects,
                               std::vector<int>&          picked,
                               float                      nms_threshold,
@@ -118,17 +132,20 @@ static void nms_sorted_bboxes(const std::vector<Object>& faceobjects,
     }
 }
 
+// Hàm tính sigmoid
 static inline float sigmoid(float x)
 {
     return static_cast<float>(1.f / (1.f + exp(-x)));
 }
 
+// Hàm giới hạn giá trị trong khoảng [min, max]
 static inline float clampf(float d, float min, float max)
 {
     const float t = d < min ? min : d;
     return t > max ? max : t;
 }
 
+// Hàm phân tích kết quả dự đoán từ mô hình YOLOv8
 static void parse_yolov8_detections(float*               inputs,
                                     float                confidence_threshold,
                                     int                  num_channels,
@@ -175,14 +192,19 @@ static void parse_yolov8_detections(float*               inputs,
     objects = detections;
 }
 
+// Hàm chính thực hiện phát hiện đối tượng sử dụng mô hình YOLOv8
 static int detect_yolov8(const char*          param_path,
                          const char*          modelpath,
                          const cv::Mat&       bgr,
-                         std::vector<Object>& objects)
+                         std::vector<Object>& objects,
+                         const std::vector<std::string>& class_names)
 {
     ncnn::Net yolov8;
 
     yolov8.opt.use_vulkan_compute = true; // if you want detect in hardware, then enable it
+    yolov8.opt.num_threads = 4; // Điều chỉnh số luồng
+    yolov8.opt.use_fp16_packed = true; // Sử dụng FP16 để tăng tốc
+    yolov8.opt.use_fp16_storage = true;
 
     yolov8.load_param(param_path);
     yolov8.load_model(modelpath);
@@ -234,7 +256,7 @@ static int detect_yolov8(const char*          param_path,
         ex.extract("out0", out);
 
         std::vector<Object> objects32;
-        const int           num_labels = sizeof(class_names) / sizeof(class_names[0]);
+        const int num_labels = class_names.size();
         parse_yolov8_detections(
             (float*) out.data, prob_threshold, out.h, out.w, num_labels, in_pad.w, in_pad.h, objects32);
         proposals.insert(proposals.end(), objects32.begin(), objects32.end());
@@ -275,7 +297,8 @@ static int detect_yolov8(const char*          param_path,
     return 0;
 }
 
-static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects)
+// Hàm vẽ các đối tượng được phát hiện lên ảnh
+static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, const std::vector<std::string>& class_names)
 {
     static const unsigned char colors[19][3] = {{54, 67, 244},
                                                 {99, 30, 233},
@@ -322,7 +345,7 @@ static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects)
         cv::rectangle(image, obj.rect, cc, 2);
 
         char text[256];
-        sprintf(text, "%s %.1f%%", class_names[obj.label], obj.prob * 100);
+        sprintf(text, "%s %.1f%%", class_names[obj.label].c_str(), obj.prob * 100);
 
         int      baseLine   = 0;
         cv::Size label_size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
@@ -339,30 +362,47 @@ static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects)
             image, text, cv::Point(x, y + label_size.height), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255));
     }
 
-    cv::imshow("YOLOv8 Detection", image);
+    cv::imshow("YOLOv12 Detection", image);
 }
 
+// Hàm main - điểm khởi đầu của chương trình
 int main(int argc, char** argv)
 {
-    if (argc != 3)
-    {
-        fprintf(stderr, "Usage: %s [parampath] [modelpath]\n", argv[0]);
+    std::string model_dir;
+    if (argc == 2) {
+        model_dir = argv[1];
+    } else if (argc == 1) {
+        model_dir = "."; // Thư mục hiện tại
+    } else {
+        fprintf(stderr, "Usage: %s [model_directory]\n", argv[0]);
         return -1;
     }
 
-    const char* parampath = argv[1];
-    const char* modelpath = argv[2];
+    // Tạo đường dẫn đầy đủ cho param và model file
+    std::string parampath = model_dir + "/model.ncnn.param";
+    std::string modelpath = model_dir + "/model.ncnn.bin";
+    std::string metadata_path = model_dir + "/metadata.yaml";
 
-    const std::string cam = "/dev/v4l/by-id/usb-SN0002_1080P_Web_Camera_SN0002-video-index0"; // your usb cam device
+    // Đọc danh sách class names từ file metadata
+    std::vector<std::string> class_names = get_class_names(metadata_path);
+    if (class_names.empty()) {
+        fprintf(stderr, "Error: No class names found in metadata file\n");
+        return -1;
+    }
+
+    const int cam = 0; // your usb cam device
 
     // Open video capture
-    cv::VideoCapture cap;
-    cap.open(cam, cv::CAP_V4L2); // Specify V4L2 backend for better performance
+    cv::VideoCapture cap(0, cv::CAP_AVFOUNDATION); 
+    
     if (!cap.isOpened())
     {
         std::cerr << "Error: Could not open the camera!\n";
         return -1;
     }
+    // Set kích thước video (nếu muốn)
+    cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
 
     // Print actual camera properties
     fprintf(stderr, "Camera properties:\n");
@@ -381,9 +421,9 @@ int main(int argc, char** argv)
         }
 
         std::vector<Object> objects;
-        detect_yolov8(parampath, modelpath, frame, objects);
+        detect_yolov8(parampath.c_str(), modelpath.c_str(), frame, objects, class_names);
 
-        draw_objects(frame, objects);
+        draw_objects(frame, objects, class_names);
 
         // Press 'q' to quit
         char key = cv::waitKey(1);

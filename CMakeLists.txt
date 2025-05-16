@@ -16,13 +16,13 @@ if(OpenCV_FOUND)
     endif()
 endif()
 
-link_directories(${CMAKE_CURRENT_SOURCE_DIR}/ncnn-20250503-ubuntu-2404-shared/lib)
+link_directories("/opt/homebrew/lib")
 
 add_executable(${PROJECT_NAME} main.cpp)
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ncnn-20250503-ubuntu-2404-shared/include)
+target_include_directories(${PROJECT_NAME} PRIVATE "/opt/homebrew/include")
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} PRIVATE ncnn glslang MachineIndependent GenericCodeGen OSDependent SPIRV ${OpenCV_LIBS})
+target_link_libraries(${PROJECT_NAME} PRIVATE ncnn glslang yaml-cpp SPIRV ${OpenCV_LIBS})
 
 # OGLCompiler
 
