@@ -22,7 +22,7 @@ add_executable(${PROJECT_NAME} main.cpp)
 target_include_directories(${PROJECT_NAME} PRIVATE "/opt/homebrew/include")
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} PRIVATE ncnn glslang yaml-cpp SPIRV ${OpenCV_LIBS})
+target_link_libraries(${PROJECT_NAME} PRIVATE ncnn yaml-cpp SPIRV ${OpenCV_LIBS})
 
 # OGLCompiler
 

@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Yolo Ncnn",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/yolo_ncnn_d",
+            "args": ["/Users/cuong/Desktop/oiv7"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "lldb",
+            "preLaunchTask": "build_debug",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for lldb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+} 

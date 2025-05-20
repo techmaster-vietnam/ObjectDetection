@@ -592,10 +592,6 @@ static void list_cameras() {
 int main(int argc, char** argv)
 {
 
-    // Liệt kê các camera có sẵn
-    //list_cameras();
-    //return 0;
-
     std::string model_dir;
     if (argc == 2)
     {
